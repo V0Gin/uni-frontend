@@ -2,8 +2,11 @@
 let currentPath = [];      // Array of { id, name } representing navigation stack
 let allFolders = [];       // Raw folder data from API
 let selectedFiles = [];    // Files selected for upload
+let activeTab = 'folders'; // Current active tab: 'folders' or 'recent'
+let recentFiles = [];      // Cached recent files from API
+let recentLoaded = false;  // Whether recent files have been fetched
 
-const API_BASE = 'https://uni-backend-5szi.onrender.com';
+const API_BASE = 'http://localhost:3000';
 
 // ===== DOM References =====
 const folderGrid = document.getElementById('folder-grid');
@@ -22,11 +25,182 @@ const submitBtn = document.getElementById('submit-btn');
 const submitBtnText = document.getElementById('submit-btn-text');
 const submitSpinner = document.getElementById('submit-spinner');
 
+// Recent uploads DOM references
+const recentSection = document.getElementById('recent-section');
+const recentGrid = document.getElementById('recent-grid');
+const recentLoading = document.getElementById('recent-loading');
+const recentEmpty = document.getElementById('recent-empty');
+const recentError = document.getElementById('recent-error');
+const folderSection = document.getElementById('folder-section');
+const breadcrumbBar = document.getElementById('breadcrumb-bar');
+
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', () => {
   loadFolders();
   setupDropZone();
 });
+
+// ===== Tab Switching =====
+function switchTab(tab) {
+  if (tab === activeTab) return;
+  activeTab = tab;
+
+  // Update tab button states
+  document.getElementById('tab-folders').classList.toggle('active', tab === 'folders');
+  document.getElementById('tab-recent').classList.toggle('active', tab === 'recent');
+
+  if (tab === 'folders') {
+    folderSection.classList.remove('hidden');
+    breadcrumbBar.classList.remove('hidden');
+    recentSection.classList.add('hidden');
+  } else {
+    folderSection.classList.add('hidden');
+    breadcrumbBar.classList.add('hidden');
+    recentSection.classList.remove('hidden');
+
+    // Lazy-load recent files on first switch
+    if (!recentLoaded) {
+      loadRecentFiles();
+    }
+  }
+}
+
+// ===== Fetch Recent Files =====
+async function loadRecentFiles() {
+  showRecentState('loading');
+
+  try {
+    const res = await fetch(`${API_BASE}/recent`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    recentFiles = await res.json();
+    recentLoaded = true;
+    renderRecentFiles();
+  } catch (err) {
+    console.error('Failed to load recent files:', err);
+    showRecentState('error');
+  }
+}
+
+// ===== Show Recent State =====
+function showRecentState(state) {
+  recentGrid.classList.toggle('hidden', state !== 'content');
+  recentLoading.classList.toggle('hidden', state !== 'loading');
+  recentEmpty.classList.toggle('hidden', state !== 'empty');
+  recentError.classList.toggle('hidden', state !== 'error');
+}
+
+// ===== Render Recent Files =====
+function renderRecentFiles() {
+  recentGrid.innerHTML = '';
+
+  if (!recentFiles || recentFiles.length === 0) {
+    showRecentState('empty');
+    return;
+  }
+
+  showRecentState('content');
+
+  recentFiles.forEach((file, i) => {
+    const card = createRecentCard(file, i);
+    recentGrid.appendChild(card);
+  });
+}
+
+// ===== Create Recent Upload Card =====
+function createRecentCard(file, index) {
+  const card = document.createElement('div');
+  card.className = 'recent-card';
+  card.style.animationDelay = `${index * 40}ms`;
+
+  const typeInfo = getFileTypeInfo(file.mimeType, file.name);
+  const ext = getFileExtension(file.name);
+  const timeText = formatRelativeTime(file.createdTime);
+
+  card.innerHTML = `
+    <div class="recent-card-icon ${typeInfo.colorClass}">
+      ${typeInfo.icon}
+    </div>
+    <div class="recent-card-body">
+      <div class="recent-card-header">
+        <div class="recent-card-name">${escapeHTML(file.name || 'بدون اسم')}</div>
+        <div class="recent-card-time">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          ${escapeHTML(timeText)}
+        </div>
+      </div>
+      <div class="recent-card-details">
+        ${file.uploaderName ? `
+          <div class="recent-card-detail uploader">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            ${escapeHTML(file.uploaderName)}
+          </div>
+        ` : ''}
+        <div class="recent-card-detail path">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span class="path-segments">${formatPathSegments(file.path)}</span>
+        </div>
+        ${file.size ? `
+          <div class="recent-card-detail">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            ${formatFileSize(file.size)}
+          </div>
+        ` : ''}
+        ${ext ? `
+          <div class="recent-card-detail">
+            <span style="font-weight:600;color:var(--primary-600);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.5px;">${escapeHTML(ext)}</span>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+
+  return card;
+}
+
+// ===== Relative Time Formatting (Arabic) =====
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return '';
+
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+  const diffWeek = Math.floor(diffDay / 7);
+  const diffMonth = Math.floor(diffDay / 30);
+
+  if (diffSec < 60) return 'الآن';
+  if (diffMin < 2) return 'منذ دقيقة';
+  if (diffMin < 60) return `منذ ${diffMin} دقيقة`;
+  if (diffHr < 2) return 'منذ ساعة';
+  if (diffHr < 24) return `منذ ${diffHr} ساعة`;
+  if (diffDay < 2) return 'أمس';
+  if (diffDay < 7) return `منذ ${diffDay} أيام`;
+  if (diffWeek < 2) return 'منذ أسبوع';
+  if (diffWeek < 4) return `منذ ${diffWeek} أسابيع`;
+  if (diffMonth < 2) return 'منذ شهر';
+  if (diffMonth < 12) return `منذ ${diffMonth} أشهر`;
+
+  // Fallback: formatted date
+  return date.toLocaleDateString('ar-SA', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+}
 
 // ===== Fetch Folders =====
 async function loadFolders() {
@@ -534,8 +708,12 @@ async function handleUpload(event) {
     resetUploadForm();
     toggleUploadPanel();
 
-    // Refresh folders
+    // Refresh folders and recent files
     loadFolders();
+    recentLoaded = false;
+    if (activeTab === 'recent') {
+      loadRecentFiles();
+    }
   } catch (err) {
     console.error('Upload failed:', err);
     showToast(err.message || 'فشل رفع الملفات', 'error');
@@ -609,3 +787,22 @@ function escapeHTML(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+function formatPathSegments(pathStr) {
+  if (!pathStr || pathStr === 'الرئيسية') {
+    return `<span class="path-segment">الرئيسية</span>`;
+  }
+
+  const parts = pathStr.split(' / ').filter(p => p.trim());
+  if (parts.length === 0) {
+    return `<span class="path-segment">الرئيسية</span>`;
+  }
+
+  return parts.map((part, i) => {
+    const separator = i < parts.length - 1
+      ? '<span class="path-separator">‹</span>'
+      : '';
+    return `<span class="path-segment">${escapeHTML(part)}</span>${separator}`;
+  }).join('');
+}
+
