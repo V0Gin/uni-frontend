@@ -6,7 +6,7 @@ let activeTab = 'folders'; // Current active tab: 'folders' or 'recent'
 let recentFiles = [];      // Cached recent files from API
 let recentLoaded = false;  // Whether recent files have been fetched
 
-const API_BASE = 'hhttps://uni-backend-5szi.onrender.com';
+const API_BASE = 'https://uni-backend-5szi.onrender.com';
 
 // ===== DOM References =====
 const folderGrid = document.getElementById('folder-grid');
